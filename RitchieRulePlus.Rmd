@@ -9,33 +9,35 @@ runtime: shiny
 
 # To Trade or Invest, that is the question.
 
+### Or... is all you need to succeed proper bet sizing?
+
 There once was a time when I believed that all my mathematical and statistical knowledge would make me a fortune in the markets.  
 
 After 5 years of "chasing the wind" as the writer of Ecclesiastes might say, I retired my trading chops in favor of pursuing lower hanging fruit.
 
-Recently though, an acquaintence of mine, [Mark Ritchie](http://markritchie.me), wrote a book on trade sizing in which he demonstrates his formula (similar to the Kelly criterion) for calculating how to much to risk.
-
-I don't disagree with it, but I also know that there's more to it than what he presents.  
 
 ## Ritchies Rule aka bet sizing
 
+Recently though, an acquaintence of mine, [Mark Ritchie](http://markritchie.me), wrote a book on trade sizing in which he demonstrates his formula (similar to the Kelly criterion) for calculating how to much to risk.
+
 The basic motivation of Ritchies Rule is trading the amount of money which keeps you alive to fight another day.
 
-If you're at the casino playing blackjack you don't want to bet all your money on one go (actually you do if you want the best chance of doubling your money, but that's for another analysis).  Ritchies Rule helps you determine the amount that allows you to play as long as possible without bankruptcy.  Why?  Cause you love gambling!
+Below is a simplified version of this app which you can fill estimated winning percentage into.  I simplified to show you the likelihoods of winning outcomes and their densities.  Mark has an [app](https://itunes.apple.com/us/app/ritchirule/id410837344?mt=8) on the iTunes store which you can buy for $0.99 that does more than the following if you're interested.
 
-Okay here's the basic rule:
-
-$$ riskAmount = \frac{T}{W}*\frac{\frac{w}{l}+1-\frac{t}{w}}{\frac{p}{w}} $$
-
-Below is a simplified version of this app which you can fill estimated winning percentage into.  I simplified to show you the average trend and the 95th quantile returns with a simple coin flip betting scheme.  Mark has an [app](https://itunes.apple.com/us/app/ritchirule/id410837344?mt=8) on the iTunes store which you can buy for $0.99 that does more than the following if you're interested.
+Also, for comparison, I showed similar returns for just putting all of your money into the S&P500 and going long (for any 1000 day stretch in it's history).
 
 ```{r, echo=FALSE}
 library(shiny)
 library(ggplot2)
 
+sp500 = read.csv('data/SP500.csv')
+sp500[["pGain"]] = 1+(lag(sp500$Close)-sp500$Close) / lag(sp500$Close)
+sp500[is.na(sp500)]=1
+
 inputPanel(
   numericInput('winP',label = 'Winning Percentage (range = 1 to 100)', value = 52, min = 1,max = 100),
-  numericInput('betP', label = 'Bet Size as a percentage of total capital', value=8, min=1, max=100)
+  numericInput('betP', label = 'Bet Size as a percentage of total capital', value=8, min=1, max=100),
+  sliderInput('avgLossP',label = 'Avg. Trade Loss/Gain size', value=10, min=1, max=100)
 )
 
 
@@ -47,32 +49,57 @@ renderPlot({
       profits = data.frame(returns=rep(1, 1000), time=1:1000, col=.5)            
       for (i in 1:200) {
         #incProgress(1/100)
-        returns = abs(rnorm(1000, 0, sd = .003))*ifelse(runif(1000)>input$winP/100, -1, 1)
+        returns = abs(rnorm(1000, 0, sd = input$avgLossP/100/3))*ifelse(runif(1000)>input$winP/100, -1, 1)
         betSize = input$betP/100*returns+1
         profits = rbind(profits, data.frame(returns=cumprod(betSize), time=1:1000, col=betSize[length(betSize)]))
       }
     })
   
   ggplot(profits, aes(x=time, y=returns))+geom_hex(alpha=.75)+geom_density2d(color="red",size=2)+#(color="grey", alpha=.5)+
+    ylim(.4, 1.6)+
     labs(title='Density of % Returns (likelihood) with Ritchies Rule Optimal bet percentage')
+  
+ 
 })
 
+renderPlot({
+   
+  withProgress(message = 'Calculating Long on S&P500 Returns',
+                 detail = 'This may take a while...', value = 0, {
+                   
+      profits = data.frame(returns=rep(1, 1000), time=1:1000, col=.5)            
+      for (i in 1:200) {
+        #incProgress(1/100)
+        startPoint=sample(1:(nrow(sp500)-1001), 1)
+        returns = sp500$pGain[startPoint:(startPoint+999)]
+        profits = rbind(profits, data.frame(returns=cumprod(returns), time=1:1000, col=.5))
+      }
+    })
+  
+  ggplot(profits, aes(x=time, y=returns))+geom_hex(alpha=.75)+geom_density2d(color="red",size=2)+#(color="grey", alpha=.5)+
+    ylim(.4, 1.6)+
+    labs(title='Density of % Returns (likelihood) going long on S&P500')
+  
+})
 ```
 
-The above plot shows us what is most likely to occur using the Ritchie Rule betting process with normally distributed returns and the specified winning percentage.
 
-** Observations ** 
 
-*  Bet size determines how quickly you go broke
-*  Lower bet size means lower returns as well
+The above plot shows us what is most likely to occur using the Ritchie Rule betting process with normally distributed returns (mean=0, 99th quantile = avg. gain/loss size) and the specified winning percentage and average trade movement.
 
-** A conclusion **
+**Observations** 
 
-Living to fight another day is great, but ultimately your trading has to be worthwhile.  So unless you can scale your position upwards with limited downside (for instance a call option), reducing your bet size wont help you beat the S&P 500.
+*  If you can steadily rack up more winning trades with large movements then you can get good risk reduced returns with good bet sizing
+*  But if you can't get both good movement (~10% per trade) or your winning percentage isn't greater than 52%, bet sizing simply delays the inevitable
+*  Realistically, your chances for achieving good returns with low risk and low stress are probably maximized on the S&P 500
 
-In fact, we can figure out the average time to bust for any given winning percentage and bet size.  
+**A conclusion**
 
-Here we are going to specify a slightly losing percentage automatically (49% of trades lose) just so that we can see when any system would die (as they all will).
+Living to fight another day is great, but ultimately your trading has to be worthwhile and with manageable stress.  So unless you can scale your position upwards with limited downside (for instance call options) and achieve significantly more winning than losing trades, then reducing your bet size wont help you beat the S&P 500.
+
+In fact, we can figure out the average time to bust for any given winning percentage, bet size and average size of win or loss for a trade.  
+
+Let's look at what happens with a losing trading system in which 51% of trades lose, and specify that we can gain or lose up to 90% of our trade.  What then is the average time for a system to die with varying bet sizing?
 
 ```{r echo=FALSE}
 
@@ -82,7 +109,7 @@ betS = seq(1,100, by=10)
   for(b in betS){
       for (i in 1:10) {
         #incProgress(1/100)
-        returns = abs(rnorm(1000, 0, sd = .3))*ifelse(runif(1000)>40/100, -1, 1)
+        returns = abs(rnorm(1000, 0, sd = .3))*ifelse(runif(1000)>49/100, -1, 1)
         betSize = b/100*returns+1
         profits = rbind(profits, data.frame(returns=cumprod(betSize), time=1:1000, trial=i, betSize=b))
       }
@@ -93,24 +120,32 @@ bustByBet = profits %.%
   arrange(time) %.%
   summarize(bustTime = ifelse(any(returns<.01), which(returns<.01)[1], 1000)) %.%
   group_by(betSize) %.%
-  summarize(mean(bustTime))
+  summarize(meanBust = mean(bustTime))
+
+ggplot(bustByBet, aes(x=betSize, y=meanBust))+geom_line()+
+  labs(title="Mean Time to Bust", xtitle='Bet Size %', ytitle='Days')
 
 
 ```
 
 
+So up to about 12.5% betting size works here to not bust within 1000 days with a slightly losing track record.  
 
-#  My additions to Mark Ritchies Rule
+### Note that you never bust 1 time in any 1000 day period while trading the S&P 500
 
-Okay, great, we live to fight another day!  But what if we just want to make money? There are 3 additional aspects of trading to cover.
+# Does Mark Ritchie's Rule work?
 
-And at the end of the day there's one simple decision we have to make, take on high stress and trade actively, or dump money into the S&P 500 and let it ride (while you sip Mai Thais on the beach).
+Yes.  But it wont necessarily make you any more money than just playing the S&P 500 long.
+
+All trading is risky and stressful too.
+
+#  Further thoughts on Mark Ritchie's Rule
 
 ## Issue 1, comissions and slippages
 
 Trading isn't free.  There are two types of costs:
 
-*  Entry/exit costs commonly known as comissions (usually from $5 to $20 for stocks, options bonds and $30-50 for futures) 
+*  Entry/exit costs commonly known as comissions (usually from $5 to $20 for stocks, options bonds and $20-50 for futures) 
 *  Slippage
 
 Slippage is, well, a slippery topic.  Most traders know about it, but many investors wont.  Slippage is the phenomenon that accompanies trading with stops.  Generally one exits a position when it moves in the unprofitable direction.  Selling in a buyers market means that your target "stop" price often "slips" a few additional points in the wrong direction.
@@ -119,19 +154,10 @@ Slippage is, well, a slippery topic.  Most traders know about it, but many inves
 
 Mark Ritchie explains his rule using the law of averges and coin flips.  And the above charts are constructed on normally distributed returns and "geometrically" distributed winning/losing streaks.  Unfortunately the markets are not coin flips, nor are gains normally distributed.  Markets tend to have longer down and up streaks than one would desire.  Furthermore, markets tend to have "black swan" events, like the 2008 housing bubble burst.
 
-## Issue 3, if you only want to survive just invest in S&P 500 ETF's
+## Issue 3, it takes a lot of work to trade
 
-It's actually pretty simple, if your goal is to make a consistent return on investment and never go bust just invest in S&P 500 ETFs.  They have no comissions and low managment funds.  I recommend VTI (Vangaurd Total Return).  
+And at the end of the day if your returns aren't much better than the S&P500... why bother doing all that work, taking on risk and stressing out?
 
-But if you like the rush of entering orders and obsessing over every trend then sure... go for some day trading!
-
-There's only 1 caviat, you must out predict your neighbors consistently.
-
-# Ritchies Rule Plus
-
-Use the app below to look at what happens when you trade on actual data with winning trade percentages and realistic trade comissions vs just going long on the S&P 500.  If you think you can consistently beat the market then go for it!
-
-As for me... I'll continue investing the majority of my savings in S&P500 and the occassional high risk options trade to satisfy my inner gambler :-)
 
 
 
